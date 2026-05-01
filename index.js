@@ -602,12 +602,6 @@ class FastmailMCPServer {
   }
 
   async run() {
-    // Create a single StreamableHTTPServerTransport instance for /mcp endpoint
-    const mcpTransport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => Math.random().toString(36).substring(2, 15)
-    });
-    await this.server.connect(mcpTransport);
-
     const httpServer = http.createServer(async (req, res) => {
       const parsedUrl = url.parse(req.url, true);
       
@@ -628,7 +622,18 @@ class FastmailMCPServer {
           
           const parsedBody = body ? JSON.parse(body) : undefined;
           
+          // Create a fresh stateless transport for each request
+          const mcpTransport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: undefined // Stateless mode
+          });
+          await this.server.connect(mcpTransport);
+          
           await mcpTransport.handleRequest(req, res, parsedBody);
+          
+          // Clean up transport after request
+          res.on('close', () => {
+            mcpTransport.close();
+          });
         } catch (error) {
           console.error(`[${new Date().toISOString()}] Error handling /mcp request:`, error);
           if (!res.headersSent) {
