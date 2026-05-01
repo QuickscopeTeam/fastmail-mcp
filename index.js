@@ -603,7 +603,9 @@ class FastmailMCPServer {
 
   async run() {
     // Create a single StreamableHTTPServerTransport instance for /mcp endpoint
-    const mcpTransport = new StreamableHTTPServerTransport();
+    const mcpTransport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => Math.random().toString(36).substring(2, 15)
+    });
     await this.server.connect(mcpTransport);
 
     const httpServer = http.createServer(async (req, res) => {
@@ -614,7 +616,19 @@ class FastmailMCPServer {
         console.log(`[${new Date().toISOString()}] ${req.method} /mcp from ${req.socket.remoteAddress}`);
         
         try {
-          await mcpTransport.handleRequest(req, res);
+          // Parse request body
+          let body = '';
+          req.on('data', chunk => {
+            body += chunk.toString();
+          });
+          
+          await new Promise((resolve) => {
+            req.on('end', resolve);
+          });
+          
+          const parsedBody = body ? JSON.parse(body) : undefined;
+          
+          await mcpTransport.handleRequest(req, res, parsedBody);
         } catch (error) {
           console.error(`[${new Date().toISOString()}] Error handling /mcp request:`, error);
           if (!res.headersSent) {
