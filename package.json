@@ -1,0 +1,15 @@
+{
+  "name": "fastmail-mcp",
+  "version": "1.0.0",
+  "description": "Fastmail MCP server using JMAP API",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "sh start.sh"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "node-fetch": "^3.3.2"
+  }
+}
