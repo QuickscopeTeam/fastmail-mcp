@@ -331,9 +331,15 @@ async function sendEmail(accountId, args) {
         isTruncated: false,
       };
 
+      // Special handling for .ics calendar invites
+      let contentType = attachment.type || "application/octet-stream";
+      if (attachment.filename && attachment.filename.toLowerCase().endsWith('.ics')) {
+        contentType = "text/calendar; method=REQUEST";
+      }
+
       return {
         partId: partId,
-        type: attachment.type || "application/octet-stream",
+        type: contentType,
         name: attachment.filename,
         disposition: "attachment",
         cid: null,
@@ -626,7 +632,7 @@ function registerTools(server) {
       },
       {
         name: "send_email",
-        description: "Send an email with optional file attachments",
+        description: "Send an email with optional file attachments (supports .ics calendar invites)",
         inputSchema: {
           type: "object",
           properties: {
@@ -649,17 +655,17 @@ function registerTools(server) {
             },
             attachments: {
               type: "array",
-              description: "Optional array of file attachments",
+              description: "Optional array of file attachments. For .ics files, automatically sets Content-Type to 'text/calendar; method=REQUEST' to trigger 'Add to Calendar' in mail clients.",
               items: {
                 type: "object",
                 properties: {
                   filename: {
                     type: "string",
-                    description: "Name of the file",
+                    description: "Name of the file (e.g., 'invite.ics')",
                   },
                   type: {
                     type: "string",
-                    description: "MIME type (e.g., 'application/pdf', 'image/png')",
+                    description: "MIME type (e.g., 'application/pdf', 'image/png'). For .ics files, this is automatically set to 'text/calendar; method=REQUEST'.",
                   },
                   data: {
                     type: "string",
