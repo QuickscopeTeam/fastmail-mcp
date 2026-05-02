@@ -320,53 +320,150 @@ async function sendEmail(accountId, args) {
   };
 
   if (args.attachments && args.attachments.length > 0) {
-    // With attachments: use multipart/mixed structure
-    const attachmentParts = args.attachments.map((attachment, index) => {
-      const partId = `attachment${index}`;
+    // Separate .ics calendar invites from regular attachments
+    const calendarInvites = [];
+    const regularAttachments = [];
+    
+    args.attachments.forEach((attachment, index) => {
+      if (attachment.filename && attachment.filename.toLowerCase().endsWith('.ics')) {
+        calendarInvites.push({ ...attachment, index });
+      } else {
+        regularAttachments.push({ ...attachment, index });
+      }
+    });
+
+    // Handle calendar invites as inline multipart/alternative
+    if (calendarInvites.length > 0) {
+      const calendarInvite = calendarInvites[0]; // Take first .ics
+      const calPartId = `calendar${calendarInvite.index}`;
       
-      // Add attachment data to bodyValues
-      bodyValues[partId] = {
-        value: attachment.data,
-        charset: null,
+      // Decode base64 to get calendar data
+      const calendarData = Buffer.from(calendarInvite.data, 'base64').toString('utf-8');
+      
+      // Add calendar data to bodyValues
+      bodyValues[calPartId] = {
+        value: calendarData,
+        charset: "utf-8",
         isTruncated: false,
       };
 
-      // Determine content type, with special handling for .ics calendar invites
-      let contentType = attachment.type || "application/octet-stream";
-      if (attachment.filename && attachment.filename.toLowerCase().endsWith('.ics')) {
-        contentType = "text/calendar";
-      }
-
-      // Strip MIME type parameters (e.g., "text/calendar; method=REQUEST" -> "text/calendar")
-      // JMAP requires clean MIME type without parameters
-      const cleanType = contentType.split(';')[0].trim();
-
-      return {
-        partId: partId,
-        type: cleanType,
-        name: attachment.filename,
-        disposition: "attachment",
-        cid: null,
+      // Create plain text fallback
+      const textFallback = `Calendar Invite\n\n${args.subject}\n\nThis is a calendar invitation. Please use a calendar-enabled email client to view and respond.`;
+      bodyValues.textFallback = {
+        value: textFallback,
+        charset: "utf-8",
+        isTruncated: false,
       };
-    });
 
-    emailStructure = {
-      mailboxIds: { [draftsMailbox.id]: true },
-      from: fromEmail,
-      to: args.to.map((email) => ({ email })),
-      subject: args.subject,
-      bodyStructure: {
-        type: "multipart/mixed",
-        subParts: [
-          {
-            partId: "body",
-            type: "text/html",
+      // Build multipart/alternative structure with calendar invite
+      const alternativeSubParts = [
+        {
+          partId: "textFallback",
+          type: "text/plain",
+        },
+        {
+          partId: "body",
+          type: "text/html",
+        },
+        {
+          partId: calPartId,
+          type: "text/calendar",
+        },
+      ];
+
+      // If there are regular attachments, wrap in multipart/mixed
+      if (regularAttachments.length > 0) {
+        const attachmentParts = regularAttachments.map((attachment) => {
+          const partId = `attachment${attachment.index}`;
+          
+          bodyValues[partId] = {
+            value: attachment.data,
+            charset: null,
+            isTruncated: false,
+          };
+
+          const cleanType = (attachment.type || "application/octet-stream").split(';')[0].trim();
+
+          return {
+            partId: partId,
+            type: cleanType,
+            name: attachment.filename,
+            disposition: "attachment",
+            cid: null,
+          };
+        });
+
+        emailStructure = {
+          mailboxIds: { [draftsMailbox.id]: true },
+          from: fromEmail,
+          to: args.to.map((email) => ({ email })),
+          subject: args.subject,
+          bodyStructure: {
+            type: "multipart/mixed",
+            subParts: [
+              {
+                type: "multipart/alternative",
+                subParts: alternativeSubParts,
+              },
+              ...attachmentParts,
+            ],
           },
-          ...attachmentParts,
-        ],
-      },
-      bodyValues: bodyValues,
-    };
+          bodyValues: bodyValues,
+        };
+      } else {
+        // Calendar invite only - use multipart/alternative
+        emailStructure = {
+          mailboxIds: { [draftsMailbox.id]: true },
+          from: fromEmail,
+          to: args.to.map((email) => ({ email })),
+          subject: args.subject,
+          bodyStructure: {
+            type: "multipart/alternative",
+            subParts: alternativeSubParts,
+          },
+          bodyValues: bodyValues,
+        };
+      }
+    } else {
+      // No calendar invites, only regular attachments
+      const attachmentParts = regularAttachments.map((attachment) => {
+        const partId = `attachment${attachment.index}`;
+        
+        bodyValues[partId] = {
+          value: attachment.data,
+          charset: null,
+          isTruncated: false,
+        };
+
+        const cleanType = (attachment.type || "application/octet-stream").split(';')[0].trim();
+
+        return {
+          partId: partId,
+          type: cleanType,
+          name: attachment.filename,
+          disposition: "attachment",
+          cid: null,
+        };
+      });
+
+      emailStructure = {
+        mailboxIds: { [draftsMailbox.id]: true },
+        from: fromEmail,
+        to: args.to.map((email) => ({ email })),
+        subject: args.subject,
+        bodyStructure: {
+          type: "multipart/mixed",
+          subParts: [
+            {
+              partId: "body",
+              type: "text/html",
+            },
+            ...attachmentParts,
+          ],
+        },
+        bodyValues: bodyValues,
+      };
+    }
   } else {
     // Without attachments: simple HTML email
     emailStructure = {
