@@ -268,21 +268,35 @@ async function sendEmail(accountId, args) {
     throw new Error("Drafts mailbox not found");
   }
 
-  // Get identity if fromAlias is specified
-  const identityResponse = args.fromAlias 
-    ? await jmapRequest([["Identity/get", { accountId, ids: [args.fromAlias] }, "0"]])
-    : null;
+  // Get identity if fromAlias is specified, or get default identity
+  let identityResponse;
+  if (args.fromAlias) {
+    identityResponse = await jmapRequest([["Identity/get", { accountId, ids: [args.fromAlias] }, "0"]]);
+  } else {
+    // No fromAlias specified, get all identities to pick the first one
+    identityResponse = await jmapRequest([["Identity/get", { accountId }, "0"]]);
+  }
 
-  // Get the from email address if fromAlias is specified
+  // Get the from email address and identityId
   let fromEmail = undefined;
   let identityId = null;
-  if (args.fromAlias && identityResponse) {
+  
+  if (args.fromAlias) {
     const identity = identityResponse.methodResponses[0][1].list?.[0];
     if (!identity) {
       throw new Error(`Identity ${args.fromAlias} not found`);
     }
     fromEmail = [{ email: identity.email }];
     identityId = args.fromAlias;
+  } else {
+    // Use the first available identity
+    const identities = identityResponse.methodResponses[0][1].list;
+    if (!identities || identities.length === 0) {
+      throw new Error("No identities found");
+    }
+    const defaultIdentity = identities[0];
+    fromEmail = [{ email: defaultIdentity.email }];
+    identityId = defaultIdentity.id;
   }
 
   // Ensure body has proper HTML structure
@@ -328,10 +342,18 @@ async function sendEmail(accountId, args) {
     ],
   ]);
 
+  // Check if Email/set succeeded
+  const emailSetResult = response.methodResponses[0][1];
+  if (emailSetResult.notCreated?.[emailId]) {
+    const error = emailSetResult.notCreated[emailId];
+    throw new Error(`Email creation failed: ${error.description || JSON.stringify(error)}`);
+  }
+
   // Check for submission errors
   const submissionResult = response.methodResponses[1][1];
   if (submissionResult.notCreated) {
     const error = submissionResult.notCreated.submission1;
+    console.error('[sendEmail] EmailSubmission/set failed. Full response:', JSON.stringify(response.methodResponses, null, 2));
     throw new Error(`Email submission failed: ${error.description || JSON.stringify(error)}`);
   }
 
