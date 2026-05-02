@@ -344,6 +344,8 @@ async function listAliases(accountId) {
     id: identity.id,
     name: identity.name,
     email: identity.email,
+    textSignature: identity.textSignature || "",
+    htmlSignature: identity.htmlSignature || "",
   }));
 
   return {
