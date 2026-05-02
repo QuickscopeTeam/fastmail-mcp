@@ -331,15 +331,19 @@ async function sendEmail(accountId, args) {
         isTruncated: false,
       };
 
-      // Special handling for .ics calendar invites
+      // Determine content type, with special handling for .ics calendar invites
       let contentType = attachment.type || "application/octet-stream";
       if (attachment.filename && attachment.filename.toLowerCase().endsWith('.ics')) {
-        contentType = "text/calendar; method=REQUEST";
+        contentType = "text/calendar";
       }
+
+      // Strip MIME type parameters (e.g., "text/calendar; method=REQUEST" -> "text/calendar")
+      // JMAP requires clean MIME type without parameters
+      const cleanType = contentType.split(';')[0].trim();
 
       return {
         partId: partId,
-        type: contentType,
+        type: cleanType,
         name: attachment.filename,
         disposition: "attachment",
         cid: null,
