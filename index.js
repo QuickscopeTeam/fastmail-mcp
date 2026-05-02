@@ -268,39 +268,47 @@ async function sendEmail(accountId, args) {
     throw new Error("Drafts mailbox not found");
   }
 
-  // Get identity if fromAlias is specified, or get default identity
-  let identityResponse;
-  if (args.fromAlias) {
-    identityResponse = await jmapRequest([["Identity/get", { accountId, ids: [args.fromAlias] }, "0"]]);
-  } else {
-    // No fromAlias specified, get all identities to pick the first one
-    identityResponse = await jmapRequest([["Identity/get", { accountId }, "0"]]);
-  }
-
-  // Get the from email address and identityId
-  let fromEmail = undefined;
-  let identityId = null;
+  // Get all identities to search by email or ID
+  const identityResponse = await jmapRequest([["Identity/get", { accountId }, "0"]]);
+  const identities = identityResponse.methodResponses[0][1].list;
   
-  if (args.fromAlias) {
-    const identity = identityResponse.methodResponses[0][1].list?.[0];
-    if (!identity) {
-      throw new Error(`Identity ${args.fromAlias} not found`);
-    }
-    fromEmail = [{ email: identity.email }];
-    identityId = args.fromAlias;
-  } else {
-    // Use the first available identity
-    const identities = identityResponse.methodResponses[0][1].list;
-    if (!identities || identities.length === 0) {
-      throw new Error("No identities found");
-    }
-    const defaultIdentity = identities[0];
-    fromEmail = [{ email: defaultIdentity.email }];
-    identityId = defaultIdentity.id;
+  if (!identities || identities.length === 0) {
+    throw new Error("No identities found");
   }
 
-  // Ensure body has proper HTML structure
+  // Find the identity: if fromAlias looks like an email, match by email field; otherwise match by ID
+  let selectedIdentity;
+  if (args.fromAlias) {
+    if (args.fromAlias.includes('@')) {
+      // fromAlias is an email address, search by email
+      selectedIdentity = identities.find(id => id.email === args.fromAlias);
+      if (!selectedIdentity) {
+        throw new Error(`Identity with email ${args.fromAlias} not found`);
+      }
+    } else {
+      // fromAlias is an ID, search by id
+      selectedIdentity = identities.find(id => id.id === args.fromAlias);
+      if (!selectedIdentity) {
+        throw new Error(`Identity with ID ${args.fromAlias} not found`);
+      }
+    }
+  } else {
+    // No fromAlias specified, use the first identity
+    selectedIdentity = identities[0];
+  }
+
+  const fromEmail = [{ email: selectedIdentity.email }];
+  const identityId = selectedIdentity.id;
+
+  // Build email body with signature
   let emailBody = args.body;
+  
+  // Append signature if available
+  if (selectedIdentity.htmlSignature) {
+    emailBody += `<br><br><hr>${selectedIdentity.htmlSignature}`;
+  }
+  
+  // Ensure body has proper HTML structure
   if (!emailBody.trim().toLowerCase().startsWith('<html')) {
     emailBody = `<html><body style="font-family: sans-serif;">${emailBody}</body></html>`;
   }
@@ -330,7 +338,7 @@ async function sendEmail(accountId, args) {
       "EmailSubmission/set",
       {
         accountId,
-        onSuccessDestroyEmail: [`#${emailId}`],
+        onSuccessDestroyEmail: ["#submission1"],
         create: {
           submission1: {
             emailId: `#${emailId}`,
@@ -346,6 +354,7 @@ async function sendEmail(accountId, args) {
   const emailSetResult = response.methodResponses[0][1];
   if (emailSetResult.notCreated?.[emailId]) {
     const error = emailSetResult.notCreated[emailId];
+    console.error('[sendEmail] Email/set failed. Full response:', JSON.stringify(response.methodResponses, null, 2));
     throw new Error(`Email creation failed: ${error.description || JSON.stringify(error)}`);
   }
 
