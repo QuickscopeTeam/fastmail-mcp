@@ -248,17 +248,43 @@ async function readEmail(accountId, emailId) {
 
 async function sendEmail(accountId, args) {
   const emailId = `draft-${Date.now()}`;
-  const identityId = args.fromAlias || null;
+  
+  // Get mailboxes and identities in parallel
+  const [mailboxResponse, identityResponse] = await Promise.all([
+    jmapRequest([["Mailbox/get", { accountId }, "0"]]),
+    args.fromAlias ? jmapRequest([["Identity/get", { accountId, ids: [args.fromAlias] }, "0"]]) : null,
+  ]);
 
-  await jmapRequest([
+  // Find Drafts mailbox
+  const draftsMailbox = mailboxResponse.methodResponses[0][1].list.find(
+    (mb) => mb.role === "drafts"
+  );
+  if (!draftsMailbox) {
+    throw new Error("Drafts mailbox not found");
+  }
+
+  // Get the from email address if fromAlias is specified
+  let fromEmail = undefined;
+  let identityId = null;
+  if (args.fromAlias && identityResponse) {
+    const identity = identityResponse.methodResponses[0][1].list?.[0];
+    if (!identity) {
+      throw new Error(`Identity ${args.fromAlias} not found`);
+    }
+    fromEmail = [{ email: identity.email }];
+    identityId = args.fromAlias;
+  }
+
+  // Create and send email
+  const response = await jmapRequest([
     [
       "Email/set",
       {
         accountId,
         create: {
           [emailId]: {
-            mailboxIds: {},
-            from: identityId ? [{ email: identityId }] : undefined,
+            mailboxIds: { [draftsMailbox.id]: true },
+            from: fromEmail,
             to: args.to.map((email) => ({ email })),
             subject: args.subject,
             textBody: [{ partId: "body", type: "text/plain" }],
@@ -284,6 +310,13 @@ async function sendEmail(accountId, args) {
       "1",
     ],
   ]);
+
+  // Check for submission errors
+  const submissionResult = response.methodResponses[1][1];
+  if (submissionResult.notCreated) {
+    const error = submissionResult.notCreated.submission1;
+    throw new Error(`Email submission failed: ${error.description || JSON.stringify(error)}`);
+  }
 
   return {
     content: [
