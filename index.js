@@ -266,6 +266,12 @@ async function sendEmail(accountId, args) {
     identityId = args.fromAlias;
   }
 
+  // Ensure body has proper HTML structure
+  let emailBody = args.body;
+  if (!emailBody.trim().toLowerCase().startsWith('<html')) {
+    emailBody = `<html><body style="font-family: sans-serif;">${emailBody}</body></html>`;
+  }
+
   // Create and send email (no mailbox needed for transient submission)
   const response = await jmapRequest([
     [
@@ -280,7 +286,7 @@ async function sendEmail(accountId, args) {
             subject: args.subject,
             htmlBody: [{ partId: "body", type: "text/html" }],
             bodyValues: {
-              body: { value: args.body },
+              body: { value: emailBody, charset: "utf-8", isTruncated: false },
             },
           },
         },
@@ -291,6 +297,7 @@ async function sendEmail(accountId, args) {
       "EmailSubmission/set",
       {
         accountId,
+        onSuccessDestroyEmail: [`#${emailId}`],
         create: {
           submission1: {
             emailId: `#${emailId}`,
