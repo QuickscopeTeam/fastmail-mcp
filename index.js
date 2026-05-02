@@ -313,6 +313,62 @@ async function sendEmail(accountId, args) {
     emailBody = `<html><body style="font-family: sans-serif;">${emailBody}</body></html>`;
   }
 
+  // Build email structure with or without attachments
+  let emailStructure;
+  const bodyValues = {
+    body: { value: emailBody, charset: "utf-8", isTruncated: false },
+  };
+
+  if (args.attachments && args.attachments.length > 0) {
+    // With attachments: use multipart/mixed structure
+    const attachmentParts = args.attachments.map((attachment, index) => {
+      const partId = `attachment${index}`;
+      
+      // Add attachment data to bodyValues
+      bodyValues[partId] = {
+        value: attachment.data,
+        charset: null,
+        isTruncated: false,
+      };
+
+      return {
+        partId: partId,
+        type: attachment.type || "application/octet-stream",
+        name: attachment.filename,
+        disposition: "attachment",
+        cid: null,
+      };
+    });
+
+    emailStructure = {
+      mailboxIds: { [draftsMailbox.id]: true },
+      from: fromEmail,
+      to: args.to.map((email) => ({ email })),
+      subject: args.subject,
+      bodyStructure: {
+        type: "multipart/mixed",
+        subParts: [
+          {
+            partId: "body",
+            type: "text/html",
+          },
+          ...attachmentParts,
+        ],
+      },
+      bodyValues: bodyValues,
+    };
+  } else {
+    // Without attachments: simple HTML email
+    emailStructure = {
+      mailboxIds: { [draftsMailbox.id]: true },
+      from: fromEmail,
+      to: args.to.map((email) => ({ email })),
+      subject: args.subject,
+      htmlBody: [{ partId: "body", type: "text/html" }],
+      bodyValues: bodyValues,
+    };
+  }
+
   // Create email in drafts mailbox, then submit it
   const response = await jmapRequest([
     [
@@ -320,16 +376,7 @@ async function sendEmail(accountId, args) {
       {
         accountId,
         create: {
-          [emailId]: {
-            mailboxIds: { [draftsMailbox.id]: true },
-            from: fromEmail,
-            to: args.to.map((email) => ({ email })),
-            subject: args.subject,
-            htmlBody: [{ partId: "body", type: "text/html" }],
-            bodyValues: {
-              body: { value: emailBody, charset: "utf-8", isTruncated: false },
-            },
-          },
+          [emailId]: emailStructure,
         },
       },
       "0",
@@ -366,11 +413,16 @@ async function sendEmail(accountId, args) {
     throw new Error(`Email submission failed: ${error.description || JSON.stringify(error)}`);
   }
 
+  const attachmentCount = args.attachments ? args.attachments.length : 0;
+  const message = attachmentCount > 0 
+    ? `Email sent successfully with ${attachmentCount} attachment${attachmentCount > 1 ? 's' : ''}`
+    : "Email sent successfully";
+
   return {
     content: [
       {
         type: "text",
-        text: "Email sent successfully",
+        text: message,
       },
     ],
   };
@@ -574,7 +626,7 @@ function registerTools(server) {
       },
       {
         name: "send_email",
-        description: "Send an email",
+        description: "Send an email with optional file attachments",
         inputSchema: {
           type: "object",
           properties: {
@@ -593,7 +645,29 @@ function registerTools(server) {
             },
             fromAlias: {
               type: "string",
-              description: "From identity/alias ID (optional)",
+              description: "From identity/alias ID or email address (optional)",
+            },
+            attachments: {
+              type: "array",
+              description: "Optional array of file attachments",
+              items: {
+                type: "object",
+                properties: {
+                  filename: {
+                    type: "string",
+                    description: "Name of the file",
+                  },
+                  type: {
+                    type: "string",
+                    description: "MIME type (e.g., 'application/pdf', 'image/png')",
+                  },
+                  data: {
+                    type: "string",
+                    description: "Base64-encoded file data",
+                  },
+                },
+                required: ["filename", "data"],
+              },
             },
           },
           required: ["to", "subject", "body"],
