@@ -72,12 +72,32 @@ async function jmapRequest(methodCalls) {
 
 // Tool implementation functions
 async function listInbox(accountId, limit) {
+  // First get the inbox mailbox ID
+  const mailboxResponse = await jmapRequest([
+    [
+      "Mailbox/get",
+      {
+        accountId,
+      },
+      "0",
+    ],
+  ]);
+
+  const inboxMailbox = mailboxResponse.methodResponses[0][1].list.find(
+    (mb) => mb.role === "inbox"
+  );
+
+  if (!inboxMailbox) {
+    throw new Error("Inbox mailbox not found");
+  }
+
+  // Then query emails in the inbox
   const response = await jmapRequest([
     [
       "Email/query",
       {
         accountId,
-        filter: { inMailbox: null },
+        filter: { inMailbox: inboxMailbox.id },
         sort: [{ property: "receivedAt", isAscending: false }],
         limit,
       },
