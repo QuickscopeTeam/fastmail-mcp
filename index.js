@@ -10,15 +10,44 @@ import fetch from "node-fetch";
 import http from "http";
 import url from "url";
 
-const FASTMAIL_API_URL = "https://api.fastmail.com/jmap/api/";
+const FASTMAIL_SESSION_URL = "https://api.fastmail.com/.well-known/jmap";
 const API_KEY = process.env.FASTMAIL_API_KEY || "fmu1-d01e43a8-f3ca5b7579eb5aac1f2df46b23440060-0-e12f16ead889af9da7e5dbf2720a49ff";
 const PORT = process.env.PORT || 3000;
 
-// Shared account ID cache
+// Shared session and account ID cache
+let cachedSession = null;
 let cachedAccountId = null;
 
+async function getSession() {
+  if (cachedSession) return cachedSession;
+
+  const response = await fetch(FASTMAIL_SESSION_URL, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${API_KEY}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`JMAP session request failed: ${response.statusText}`);
+  }
+
+  cachedSession = await response.json();
+  return cachedSession;
+}
+
+async function getAccountId() {
+  if (cachedAccountId) return cachedAccountId;
+
+  const session = await getSession();
+  cachedAccountId = session.primaryAccounts["urn:ietf:params:jmap:mail"];
+  return cachedAccountId;
+}
+
 async function jmapRequest(methodCalls) {
-  const response = await fetch(FASTMAIL_API_URL, {
+  const session = await getSession();
+  const response = await fetch(session.apiUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -39,19 +68,6 @@ async function jmapRequest(methodCalls) {
   }
 
   return await response.json();
-}
-
-async function getAccountId() {
-  if (cachedAccountId) return cachedAccountId;
-
-  const response = await jmapRequest([
-    ["Session/get", {}, "0"],
-  ]);
-
-  const sessionData = response.methodResponses[0][1];
-  const primaryAccounts = sessionData.primaryAccounts;
-  cachedAccountId = primaryAccounts["urn:ietf:params:jmap:mail"];
-  return cachedAccountId;
 }
 
 // Tool implementation functions
