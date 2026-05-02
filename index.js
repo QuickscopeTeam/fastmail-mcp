@@ -340,6 +340,10 @@ async function listAliases(accountId) {
   ]);
 
   const identities = response.methodResponses[0][1].list;
+  
+  // Log raw identity data to verify what Fastmail returns
+  console.log('[listAliases] Raw identities:', JSON.stringify(identities, null, 2));
+  
   const formatted = identities.map((identity) => ({
     id: identity.id,
     name: identity.name,
