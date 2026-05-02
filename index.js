@@ -249,19 +249,10 @@ async function readEmail(accountId, emailId) {
 async function sendEmail(accountId, args) {
   const emailId = `draft-${Date.now()}`;
   
-  // Get mailboxes and identities in parallel
-  const [mailboxResponse, identityResponse] = await Promise.all([
-    jmapRequest([["Mailbox/get", { accountId }, "0"]]),
-    args.fromAlias ? jmapRequest([["Identity/get", { accountId, ids: [args.fromAlias] }, "0"]]) : null,
-  ]);
-
-  // Find Drafts mailbox
-  const draftsMailbox = mailboxResponse.methodResponses[0][1].list.find(
-    (mb) => mb.role === "drafts"
-  );
-  if (!draftsMailbox) {
-    throw new Error("Drafts mailbox not found");
-  }
+  // Get identity if fromAlias is specified
+  const identityResponse = args.fromAlias 
+    ? await jmapRequest([["Identity/get", { accountId, ids: [args.fromAlias] }, "0"]])
+    : null;
 
   // Get the from email address if fromAlias is specified
   let fromEmail = undefined;
@@ -275,7 +266,7 @@ async function sendEmail(accountId, args) {
     identityId = args.fromAlias;
   }
 
-  // Create and send email
+  // Create and send email (no mailbox needed for transient submission)
   const response = await jmapRequest([
     [
       "Email/set",
@@ -283,11 +274,11 @@ async function sendEmail(accountId, args) {
         accountId,
         create: {
           [emailId]: {
-            mailboxIds: { [draftsMailbox.id]: true },
+            mailboxIds: {},
             from: fromEmail,
             to: args.to.map((email) => ({ email })),
             subject: args.subject,
-            textBody: [{ partId: "body", type: "text/plain" }],
+            htmlBody: [{ partId: "body", type: "text/html" }],
             bodyValues: {
               body: { value: args.body },
             },
