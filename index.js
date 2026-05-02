@@ -594,7 +594,16 @@ const httpServer = http.createServer(async (req, res) => {
     console.log(`[${new Date().toISOString()}] ${req.method} /mcp from ${req.socket.remoteAddress}`);
     
     if (req.method === 'GET') {
-      // Return 405 for GET requests
+      // Handle non-SSE GET requests (e.g., health probes) gracefully
+      const acceptHeader = req.headers['accept'] || '';
+      if (!acceptHeader.includes('text/event-stream')) {
+        // Non-SSE probe - return 200 OK
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ok', server: 'fastmail-mcp' }));
+        return;
+      }
+      
+      // SSE request - return 405 (not supported in this version)
       res.writeHead(405, { 
         'Content-Type': 'application/json',
         'Allow': 'POST'
