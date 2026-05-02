@@ -249,6 +249,25 @@ async function readEmail(accountId, emailId) {
 async function sendEmail(accountId, args) {
   const emailId = `draft-${Date.now()}`;
   
+  // Get the drafts mailbox
+  const mailboxResponse = await jmapRequest([
+    [
+      "Mailbox/get",
+      {
+        accountId,
+      },
+      "0",
+    ],
+  ]);
+
+  const draftsMailbox = mailboxResponse.methodResponses[0][1].list.find(
+    (mb) => mb.role === "drafts"
+  );
+
+  if (!draftsMailbox) {
+    throw new Error("Drafts mailbox not found");
+  }
+
   // Get identity if fromAlias is specified
   const identityResponse = args.fromAlias 
     ? await jmapRequest([["Identity/get", { accountId, ids: [args.fromAlias] }, "0"]])
@@ -272,7 +291,7 @@ async function sendEmail(accountId, args) {
     emailBody = `<html><body style="font-family: sans-serif;">${emailBody}</body></html>`;
   }
 
-  // Create and send email (no mailbox needed for transient submission)
+  // Create email in drafts mailbox, then submit it
   const response = await jmapRequest([
     [
       "Email/set",
@@ -280,7 +299,7 @@ async function sendEmail(accountId, args) {
         accountId,
         create: {
           [emailId]: {
-            mailboxIds: {},
+            mailboxIds: { [draftsMailbox.id]: true },
             from: fromEmail,
             to: args.to.map((email) => ({ email })),
             subject: args.subject,
