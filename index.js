@@ -309,9 +309,11 @@ async function sendEmail(accountId, args) {
   // Build email body with signature
   let emailBody = args.body;
   
-  // Append signature if available
+  // Append signature if available. The signature template owns its own
+  // visual treatment (card, divider, etc.), so don't prepend an <hr> —
+  // it shows up as an unwanted line above the signature card.
   if (selectedIdentity.htmlSignature) {
-    emailBody += `<br><br><hr>${selectedIdentity.htmlSignature}`;
+    emailBody += `<br><br>${selectedIdentity.htmlSignature}`;
   }
   
   // Ensure body has proper HTML structure
