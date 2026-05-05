@@ -361,75 +361,70 @@ async function sendEmail(accountId, args) {
         isTruncated: false,
       };
 
-      // Build multipart/alternative structure with calendar invite
-      const alternativeSubParts = [
-        {
-          partId: "textFallback",
-          type: "text/plain",
-        },
-        {
-          partId: "body",
-          type: "text/html",
-        },
-        {
-          partId: calPartId,
-          type: "text/calendar",
-        },
-      ];
+      // Body alternative (text/plain + text/html only — calendar is NOT
+      // a body alternative; it's a sibling part inside multipart/mixed so
+      // Apple Mail recognises it as an actionable invite, not a rendering).
+      const bodyAlternative = {
+        type: "multipart/alternative",
+        subParts: [
+          { partId: "textFallback", type: "text/plain" },
+          { partId: "body", type: "text/html" },
+        ],
+      };
 
-      // If there are regular attachments, wrap in multipart/mixed
-      if (regularAttachments.length > 0) {
-        const attachmentParts = regularAttachments.map((attachment) => {
-          const partId = `attachment${attachment.index}`;
-          
-          bodyValues[partId] = {
-            value: attachment.data,
-            charset: null,
-            isTruncated: false,
-          };
-
-          const cleanType = (attachment.type || "application/octet-stream").split(';')[0].trim();
-
-          return {
-            partId: partId,
-            type: cleanType,
-            name: attachment.filename,
-            disposition: "attachment",
-            cid: null,
-          };
-        });
-
-        emailStructure = {
-          mailboxIds: { [draftsMailbox.id]: true },
-          from: fromEmail,
-          to: args.to.map((email) => ({ email })),
-          subject: args.subject,
-          bodyStructure: {
-            type: "multipart/mixed",
-            subParts: [
-              {
-                type: "multipart/alternative",
-                subParts: alternativeSubParts,
-              },
-              ...attachmentParts,
-            ],
+      // Calendar part: inline, with method=REQUEST so clients (Apple Mail,
+      // Outlook, Gmail) render the Accept/Decline UI. The raw Content-Type
+      // header is set explicitly because JMAP's "type" field can't carry
+      // MIME parameters.
+      const calendarPart = {
+        partId: calPartId,
+        type: "text/calendar",
+        charset: "utf-8",
+        disposition: "inline",
+        headers: [
+          {
+            name: "Content-Type",
+            value: " text/calendar; method=REQUEST; charset=UTF-8",
           },
-          bodyValues: bodyValues,
+        ],
+      };
+
+      // Optional regular attachments alongside the invite
+      const attachmentParts = regularAttachments.map((attachment) => {
+        const partId = `attachment${attachment.index}`;
+
+        bodyValues[partId] = {
+          value: attachment.data,
+          charset: null,
+          isTruncated: false,
         };
-      } else {
-        // Calendar invite only - use multipart/alternative
-        emailStructure = {
-          mailboxIds: { [draftsMailbox.id]: true },
-          from: fromEmail,
-          to: args.to.map((email) => ({ email })),
-          subject: args.subject,
-          bodyStructure: {
-            type: "multipart/alternative",
-            subParts: alternativeSubParts,
-          },
-          bodyValues: bodyValues,
+
+        const cleanType = (attachment.type || "application/octet-stream").split(';')[0].trim();
+
+        return {
+          partId: partId,
+          type: cleanType,
+          name: attachment.filename,
+          disposition: "attachment",
+          cid: null,
         };
-      }
+      });
+
+      emailStructure = {
+        mailboxIds: { [draftsMailbox.id]: true },
+        from: fromEmail,
+        to: args.to.map((email) => ({ email })),
+        subject: args.subject,
+        bodyStructure: {
+          type: "multipart/mixed",
+          subParts: [
+            bodyAlternative,
+            calendarPart,
+            ...attachmentParts,
+          ],
+        },
+        bodyValues: bodyValues,
+      };
     } else {
       // No calendar invites, only regular attachments
       const attachmentParts = regularAttachments.map((attachment) => {
