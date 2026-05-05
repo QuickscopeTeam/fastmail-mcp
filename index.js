@@ -372,21 +372,16 @@ async function sendEmail(accountId, args) {
         ],
       };
 
-      // Calendar part: inline, with method=REQUEST so clients (Apple Mail,
-      // Outlook, Gmail) render the Accept/Decline UI. The raw Content-Type
-      // header is set explicitly because JMAP's "type" field can't carry
-      // MIME parameters.
+      // Calendar part: inline (not attachment) so Apple Mail recognises
+      // it as actionable. METHOD:REQUEST is set inside the .ics body —
+      // Fastmail's JMAP doesn't accept `charset` or `headers` on body
+      // sub-parts, so we can't override the wire-level Content-Type
+      // parameters. Apple Mail falls back to reading METHOD from the
+      // .ics body, which is sufficient for Accept/Decline rendering.
       const calendarPart = {
         partId: calPartId,
         type: "text/calendar",
-        charset: "utf-8",
         disposition: "inline",
-        headers: [
-          {
-            name: "Content-Type",
-            value: " text/calendar; method=REQUEST; charset=UTF-8",
-          },
-        ],
       };
 
       // Optional regular attachments alongside the invite
