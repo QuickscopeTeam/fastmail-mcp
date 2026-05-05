@@ -72,33 +72,38 @@ async function jmapRequest(methodCalls) {
 }
 
 // Tool implementation functions
-async function listInbox(accountId, limit) {
-  // First get the inbox mailbox ID
-  const mailboxResponse = await jmapRequest([
-    [
-      "Mailbox/get",
-      {
-        accountId,
-      },
-      "0",
-    ],
-  ]);
+async function listInbox(accountId, limit, folderId) {
+  let mailboxId = folderId;
 
-  const inboxMailbox = mailboxResponse.methodResponses[0][1].list.find(
-    (mb) => mb.role === "inbox"
-  );
+  // If no folderId given, default to the inbox (role === "inbox")
+  if (!mailboxId) {
+    const mailboxResponse = await jmapRequest([
+      [
+        "Mailbox/get",
+        {
+          accountId,
+        },
+        "0",
+      ],
+    ]);
 
-  if (!inboxMailbox) {
-    throw new Error("Inbox mailbox not found");
+    const inboxMailbox = mailboxResponse.methodResponses[0][1].list.find(
+      (mb) => mb.role === "inbox"
+    );
+
+    if (!inboxMailbox) {
+      throw new Error("Inbox mailbox not found");
+    }
+    mailboxId = inboxMailbox.id;
   }
 
-  // Then query emails in the inbox
+  // Then query emails in the target mailbox
   const response = await jmapRequest([
     [
       "Email/query",
       {
         accountId,
-        filter: { inMailbox: inboxMailbox.id },
+        filter: { inMailbox: mailboxId },
         sort: [{ property: "receivedAt", isAscending: false }],
         limit,
       },
@@ -680,7 +685,7 @@ function registerTools(server) {
     tools: [
       {
         name: "list_inbox",
-        description: "List messages in the inbox with subject, from, date, and preview",
+        description: "List messages from a Fastmail folder (defaults to the inbox if no folderId is provided). Returns subject, from, date, and preview. Use list_folders first to discover folder IDs for non-inbox folders.",
         inputSchema: {
           type: "object",
           properties: {
@@ -688,6 +693,10 @@ function registerTools(server) {
               type: "number",
               description: "Maximum number of messages to return (default: 20)",
               default: 20,
+            },
+            folderId: {
+              type: "string",
+              description: "Optional Fastmail folder/mailbox ID. Omit to list the inbox.",
             },
           },
         },
@@ -858,7 +867,7 @@ function registerTools(server) {
 
       switch (name) {
         case "list_inbox":
-          return await listInbox(accountId, args.limit || 20);
+          return await listInbox(accountId, args.limit || 20, args.folderId);
         case "search_email":
           return await searchEmail(accountId, args);
         case "read_email":
