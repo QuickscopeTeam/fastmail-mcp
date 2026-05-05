@@ -252,6 +252,81 @@ async function readEmail(accountId, emailId) {
   };
 }
 
+const BRAND_COLORS = {
+  'injury.media': '#c8a45a',
+  'transcendmedia.agency': '#2563eb',
+};
+
+const SIGNOFF_RE = /^(talk soon|best|cheers|warm regards|regards|sincerely|thanks|thank you|looking forward)[,!.]?\s*$/i;
+
+function formatEmailBody(body, fromEmail, ctaUrl, ctaLabel) {
+  const domain = (fromEmail || '').split('@')[1] || '';
+  const color = BRAND_COLORS[domain] || '#2563eb';
+
+  const outerOpen = `<!DOCTYPE html><html><body style="margin:0;padding:0;background-color:#f6f6f6;">
+<table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f6f6f6;padding:24px 0;">
+  <tr><td align="center">
+    <table cellpadding="0" cellspacing="0" border="0" width="600" style="max-width:600px;background-color:#ffffff;border-radius:8px;overflow:hidden;">
+      <tr><td style="padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;line-height:1.6;color:#333333;">`;
+
+  const outerClose = `      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body></html>`;
+
+  const glassCard = (content) =>
+    `<table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 16px 0;">
+  <tr>
+    <td style="background-color:rgba(245,245,247,0.6);border:1px solid rgba(0,0,0,0.06);border-radius:12px;padding:16px 20px;">
+      <p style="margin:0;font-size:15px;line-height:1.6;color:#1a1a1a;">${content}</p>
+    </td>
+  </tr>
+</table>`;
+
+  const ctaCard = (url, label) =>
+    `<table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 16px 0;">
+  <tr>
+    <td align="center" style="background-color:${color}18;border:1px solid ${color}40;border-radius:14px;padding:20px 24px;max-width:480px;">
+      <a href="${url}" style="display:inline-block;background-color:${color};color:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;font-weight:600;text-decoration:none;padding:10px 24px;border-radius:8px;">${label || 'View Now'} →</a>
+    </td>
+  </tr>
+</table>`;
+
+  const chunks = body.split(/\n\n+/);
+  let html = '';
+  let ctaInserted = false;
+
+  for (const chunk of chunks) {
+    const trimmed = chunk.trim();
+    if (!trimmed) continue;
+
+    if (trimmed.includes('{{CTA}}')) {
+      if (ctaUrl) {
+        html += ctaCard(ctaUrl, ctaLabel);
+        ctaInserted = true;
+      }
+      continue;
+    }
+
+    if (SIGNOFF_RE.test(trimmed)) {
+      html += `<p style="margin:0 0 12px 0;font-size:15px;line-height:1.6;color:#333333;">${trimmed}</p>`;
+      continue;
+    }
+
+    // Convert single newlines within a chunk to <br>
+    const inner = trimmed.replace(/\n/g, '<br>');
+    html += glassCard(inner);
+  }
+
+  // Append CTA after last paragraph if {{CTA}} wasn't in the body
+  if (ctaUrl && !ctaInserted) {
+    html += ctaCard(ctaUrl, ctaLabel);
+  }
+
+  return { outerOpen, outerClose, bodyHtml: html, color };
+}
+
 async function sendEmail(accountId, args) {
   const emailId = `draft-${Date.now()}`;
   
@@ -306,20 +381,20 @@ async function sendEmail(accountId, args) {
   const fromEmail = [{ email: selectedIdentity.email }];
   const identityId = selectedIdentity.id;
 
-  // Build email body with signature
-  let emailBody = args.body;
-  
-  // Append signature if available. The signature template owns its own
-  // visual treatment (card, divider, etc.), so don't prepend an <hr> —
-  // it shows up as an unwanted line above the signature card.
+  // Build email body with glassmorphic card formatting
+  const { outerOpen, outerClose, bodyHtml } = formatEmailBody(
+    args.body,
+    selectedIdentity.email,
+    args.ctaUrl,
+    args.ctaLabel
+  );
+
+  let signatureBlock = '';
   if (selectedIdentity.htmlSignature) {
-    emailBody += `<br><br>${selectedIdentity.htmlSignature}`;
+    signatureBlock = `<hr style="border:none;border-top:1px solid #e5e5e5;margin:24px 0;">${selectedIdentity.htmlSignature}`;
   }
-  
-  // Ensure body has proper HTML structure
-  if (!emailBody.trim().toLowerCase().startsWith('<html')) {
-    emailBody = `<html><body style="font-family: sans-serif;">${emailBody}</body></html>`;
-  }
+
+  let emailBody = `${outerOpen}${bodyHtml}${signatureBlock}${outerClose}`;
 
   // Build email structure with or without attachments
   let emailStructure;
@@ -755,6 +830,14 @@ function registerTools(server) {
             fromAlias: {
               type: "string",
               description: "From identity/alias ID or email address (optional)",
+            },
+            ctaUrl: {
+              type: "string",
+              description: "Optional CTA button URL. Inserts a branded call-to-action card at {{CTA}} in the body, or appended after the last paragraph.",
+            },
+            ctaLabel: {
+              type: "string",
+              description: "Label for the CTA button (default: 'View Now')",
             },
             attachments: {
               type: "array",
