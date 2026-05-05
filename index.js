@@ -2,6 +2,7 @@
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -890,6 +891,18 @@ function registerTools(server) {
   });
 }
 
+// Stdio mode: spawned by Claude Code (or any MCP client) on demand
+if (process.argv.includes('--stdio')) {
+  const server = new Server(
+    { name: "fastmail-mcp", version: "1.0.0" },
+    { capabilities: { tools: {} } }
+  );
+  registerTools(server);
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error("Fastmail MCP server running on stdio");
+} else {
+
 // Create HTTP server
 const httpServer = http.createServer(async (req, res) => {
   const parsedUrl = url.parse(req.url, true);
@@ -1019,3 +1032,5 @@ process.on('SIGTERM', async () => {
   httpServer.close();
   process.exit(0);
 });
+
+} // end http branch
