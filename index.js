@@ -664,6 +664,54 @@ async function sendEmail(accountId, args) {
   };
 }
 
+// Cal app config — branded calendar landing pages at cal.transcendmedia.agency / cal.injury.media.
+const CAL_API_BASE = process.env.CAL_API_BASE || "https://cal.injury.media";
+const CAL_API_TOKEN = process.env.CAL_API_TOKEN || "bbc7c23c9067adc1419a0dfb1ca032243e5b625cf3e526091ada5a15d8608879";
+
+async function createCalendarLink(args) {
+  const payload = {
+    brand: args.brand,
+    title: args.title,
+    description: args.description,
+    start: args.start,
+    end: args.end,
+    location: args.location,
+    organizer: { name: args.organizerName, email: args.organizerEmail },
+    attendee: args.attendeeName && args.attendeeEmail
+      ? { name: args.attendeeName, email: args.attendeeEmail }
+      : undefined,
+  };
+
+  const res = await fetch(`${CAL_API_BASE}/api/events`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${CAL_API_TOKEN}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`cal API ${res.status}: ${text.slice(0, 200)}`);
+  }
+
+  const data = await res.json();
+
+  // Also mirror to organizer's CalDAV calendar so it lands on their phone
+  if (data.ics_content) {
+    try {
+      await putCalendarEvent(data.ics_content);
+    } catch (e) {
+      console.error("[createCalendarLink] CalDAV mirror failed:", e.message);
+    }
+  }
+
+  return {
+    content: [{ type: "text", text: JSON.stringify({ id: data.id, url: data.url, ics_url: data.ics_url }, null, 2) }],
+  };
+}
+
 async function listAliases(accountId) {
   const response = await jmapRequest([
     [
@@ -987,6 +1035,30 @@ function registerTools(server) {
           required: ["emailId", "isRead"],
         },
       },
+      {
+        name: "create_calendar_link",
+        description: "Create a branded calendar event landing page at cal.transcendmedia.agency or cal.injury.media. Returns a short URL Mia can drop into emails, SMS, or share manually. The link unfurls with a branded OG card preview and the page has an Add to Calendar button. Also writes the event to Ryan's CalDAV calendar.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            brand: {
+              type: "string",
+              enum: ["transcend", "injury"],
+              description: "Which brand's domain to use: 'transcend' = cal.transcendmedia.agency, 'injury' = cal.injury.media",
+            },
+            title: { type: "string", description: "Event title (e.g. 'Mia x Nik — content shoot')" },
+            description: { type: "string", description: "Optional longer event description" },
+            start: { type: "string", description: "ISO 8601 start datetime (e.g. '2026-05-14T15:30:00Z')" },
+            end: { type: "string", description: "ISO 8601 end datetime" },
+            location: { type: "string", description: "Optional location string" },
+            organizerName: { type: "string", description: "Display name of the organizer" },
+            organizerEmail: { type: "string", description: "Organizer email (must be a Fastmail identity, e.g. mia@injury.media)" },
+            attendeeName: { type: "string", description: "Optional attendee name" },
+            attendeeEmail: { type: "string", description: "Optional attendee email" },
+          },
+          required: ["brand", "title", "start", "end", "organizerName", "organizerEmail"],
+        },
+      },
     ],
   }));
 
@@ -1015,6 +1087,8 @@ function registerTools(server) {
           return await deleteEmail(accountId, args.emailId);
         case "mark_read":
           return await markRead(accountId, args.emailId, args.isRead);
+        case "create_calendar_link":
+          return await createCalendarLink(args);
         default:
           throw new Error(`Unknown tool: ${name}`);
       }
