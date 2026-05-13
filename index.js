@@ -15,6 +15,44 @@ const FASTMAIL_SESSION_URL = "https://api.fastmail.com/.well-known/jmap";
 const API_KEY = process.env.FASTMAIL_API_KEY || "fmu1-d01e43a8-f3ca5b7579eb5aac1f2df46b23440060-0-e12f16ead889af9da7e5dbf2720a49ff";
 const PORT = process.env.PORT || 3000;
 
+// CalDAV credentials (Fastmail app password) — used to mirror sent invites
+// onto Ryan's primary calendar so they appear on his phone.
+const CALDAV_USER = process.env.FASTMAIL_CALDAV_USER || "ryan@symbio.live";
+const CALDAV_PASSWORD = process.env.FASTMAIL_CALDAV_PASSWORD || "7f9q4x679y555n7g";
+const CALDAV_BASE = "https://caldav.fastmail.com";
+const CALDAV_CALENDAR_PATH = process.env.FASTMAIL_CALDAV_CALENDAR_PATH || "/dav/calendars/user/ryan@symbio.live/F7F39F26-41B5-11F1-880A-F1376648A29D/";
+
+async function putCalendarEvent(icsContent) {
+  if (!CALDAV_USER || !CALDAV_PASSWORD) return { ok: false, skipped: true };
+  const uidMatch = icsContent.match(/^UID:(.+)$/m);
+  if (!uidMatch) return { ok: false, error: "no UID in ics" };
+  const uid = uidMatch[1].trim();
+  // Strip METHOD line — METHOD is for transport (iTIP), not for stored events
+  const eventIcs = icsContent.replace(/^METHOD:.*\r?\n/m, "");
+  const auth = Buffer.from(`${CALDAV_USER}:${CALDAV_PASSWORD}`).toString("base64");
+  const safeUid = encodeURIComponent(uid);
+  const url = `${CALDAV_BASE}${CALDAV_CALENDAR_PATH}${safeUid}.ics`;
+  try {
+    const res = await fetch(url, {
+      method: "PUT",
+      headers: {
+        Authorization: `Basic ${auth}`,
+        "Content-Type": "text/calendar; charset=utf-8",
+      },
+      body: eventIcs,
+    });
+    if (!res.ok && res.status !== 412 && res.status !== 204) {
+      const text = await res.text();
+      console.error("[CalDAV] PUT failed:", res.status, text.slice(0, 200));
+      return { ok: false, status: res.status };
+    }
+    return { ok: true, uid, status: res.status };
+  } catch (e) {
+    console.error("[CalDAV] PUT error:", e.message);
+    return { ok: false, error: e.message };
+  }
+}
+
 // Shared session and account ID cache
 let cachedSession = null;
 let cachedAccountId = null;
@@ -594,9 +632,27 @@ async function sendEmail(accountId, args) {
   }
 
   const attachmentCount = args.attachments ? args.attachments.length : 0;
-  const message = attachmentCount > 0 
+  let message = attachmentCount > 0
     ? `Email sent successfully with ${attachmentCount} attachment${attachmentCount > 1 ? 's' : ''}`
     : "Email sent successfully";
+
+  // Mirror any .ics invite onto the organizer's CalDAV calendar so the
+  // event appears on their phone calendar app (Fastmail JMAP doesn't
+  // expose calendar APIs — must be done via CalDAV).
+  if (args.attachments?.length) {
+    for (const att of args.attachments) {
+      if (att.filename?.toLowerCase().endsWith('.ics') && att.data) {
+        try {
+          const ics = Buffer.from(att.data, 'base64').toString('utf-8');
+          const result = await putCalendarEvent(ics);
+          if (result.ok) message += " (added to calendar)";
+          else if (!result.skipped) console.error('[sendEmail] CalDAV mirror failed:', result);
+        } catch (e) {
+          console.error('[sendEmail] CalDAV mirror exception:', e.message);
+        }
+      }
+    }
+  }
 
   return {
     content: [
