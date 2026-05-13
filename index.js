@@ -583,8 +583,9 @@ async function sendEmail(accountId, args) {
     };
   }
 
-  // Create email in drafts mailbox, then submit it
-  const response = await jmapRequest([
+  // Either save as draft, or create-and-submit (send). When saveDraft is
+  // true, we only run Email/set so the message lands in Drafts for review.
+  const jmapCalls = [
     [
       "Email/set",
       {
@@ -595,7 +596,10 @@ async function sendEmail(accountId, args) {
       },
       "0",
     ],
-    [
+  ];
+
+  if (!args.saveDraft) {
+    jmapCalls.push([
       "EmailSubmission/set",
       {
         accountId,
@@ -608,8 +612,10 @@ async function sendEmail(accountId, args) {
         },
       },
       "1",
-    ],
-  ]);
+    ]);
+  }
+
+  const response = await jmapRequest(jmapCalls);
 
   // Check if Email/set succeeded
   const emailSetResult = response.methodResponses[0][1];
@@ -619,18 +625,21 @@ async function sendEmail(accountId, args) {
     throw new Error(`Email creation failed: ${error.description || JSON.stringify(error)}`);
   }
 
-  // Check for submission errors
-  const submissionResult = response.methodResponses[1][1];
-  if (submissionResult.notCreated) {
-    const error = submissionResult.notCreated.submission1;
-    console.error('[sendEmail] EmailSubmission/set failed. Full response:', JSON.stringify(response.methodResponses, null, 2));
-    throw new Error(`Email submission failed: ${error.description || JSON.stringify(error)}`);
+  // Check for submission errors (only if we attempted submission)
+  if (!args.saveDraft) {
+    const submissionResult = response.methodResponses[1][1];
+    if (submissionResult.notCreated) {
+      const error = submissionResult.notCreated.submission1;
+      console.error('[sendEmail] EmailSubmission/set failed. Full response:', JSON.stringify(response.methodResponses, null, 2));
+      throw new Error(`Email submission failed: ${error.description || JSON.stringify(error)}`);
+    }
   }
 
   const attachmentCount = args.attachments ? args.attachments.length : 0;
+  const verb = args.saveDraft ? "Draft saved" : "Email sent";
   let message = attachmentCount > 0
-    ? `Email sent successfully with ${attachmentCount} attachment${attachmentCount > 1 ? 's' : ''}`
-    : "Email sent successfully";
+    ? `${verb} successfully with ${attachmentCount} attachment${attachmentCount > 1 ? 's' : ''}`
+    : `${verb} successfully`;
 
   // Mirror any .ics invite onto the organizer's CalDAV calendar so the
   // event appears on their phone calendar app (Fastmail JMAP doesn't
@@ -960,6 +969,10 @@ function registerTools(server) {
                 },
                 required: ["filename", "data"],
               },
+            },
+            saveDraft: {
+              type: "boolean",
+              description: "If true, save the message to the Drafts folder for later review instead of sending immediately. Defaults to false (send).",
             },
           },
           required: ["to", "subject", "body"],
