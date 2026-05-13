@@ -301,20 +301,22 @@ function formatEmailBody(body, fromEmail, ctaUrl, ctaLabel) {
   const domain = (fromEmail || '').split('@')[1] || '';
   const color = BRAND_COLORS[domain] || '#2563eb';
 
-  const outerOpen = `<!DOCTYPE html><html><body style="margin:0;padding:0;background-color:#f6f6f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;line-height:1.6;color:#333333;">
-<div style="max-width:600px;margin:0 auto;padding:20px 16px;">`;
+  const outerOpen = `<!DOCTYPE html><html><body style="margin:0;padding:0;background-color:#ffffff;">
+<table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#ffffff;">
+  <tr><td align="center" style="padding:24px 0;">
+    <table cellpadding="0" cellspacing="0" border="0" width="600" style="max-width:600px;">
+      <tr><td style="padding:0 24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;line-height:1.6;color:#333333;">`;
 
-  const outerClose = `</div>
+  const outerClose = `      </td></tr>
+    </table>
+  </td></tr>
+</table>
 </body></html>`;
 
   const glassCard = (content) =>
-    `<table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 12px 0;">
-  <tr>
-    <td style="background-color:#ffffff;border:1px solid rgba(0,0,0,0.08);border-radius:12px;padding:16px 20px;">
-      <div style="margin:0;font-size:15px;line-height:1.6;color:#1a1a1a;">${content}</div>
-    </td>
-  </tr>
-</table>`;
+    `<div style="background-color:#f5f5f7;border:1px solid rgba(0,0,0,0.06);border-radius:12px;padding:16px 20px;margin:0 0 12px 0;">
+  <div style="margin:0;font-size:15px;line-height:1.6;color:#1a1a1a;">${content}</div>
+</div>`;
 
   const ctaCard = (url, label) =>
     `<table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 16px 0;">
