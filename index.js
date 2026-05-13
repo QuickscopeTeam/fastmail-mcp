@@ -15,13 +15,12 @@ const FASTMAIL_SESSION_URL = "https://api.fastmail.com/.well-known/jmap";
 const API_KEY = process.env.FASTMAIL_API_KEY || "fmu1-d01e43a8-f3ca5b7579eb5aac1f2df46b23440060-0-e12f16ead889af9da7e5dbf2720a49ff";
 const PORT = process.env.PORT || 3000;
 
-// CalDAV credentials — must be supplied via env vars. App password from
-// Fastmail Settings → Privacy & Security → Connected apps & API tokens
-// (access: Mail, Contacts & Calendars).
-const CALDAV_USER = process.env.FASTMAIL_CALDAV_USER || "";
-const CALDAV_PASSWORD = process.env.FASTMAIL_CALDAV_PASSWORD || "";
+// CalDAV credentials — mirror sent .ics invites onto Ryan's primary calendar.
+// Defaults are Ryan's setup; override via env when deploying for others.
+const CALDAV_USER = process.env.FASTMAIL_CALDAV_USER || "ryan@symbio.live";
+const CALDAV_PASSWORD = process.env.FASTMAIL_CALDAV_PASSWORD || "7f9q4x679y555n7g";
 const CALDAV_BASE = "https://caldav.fastmail.com";
-const CALDAV_CALENDAR_PATH = process.env.FASTMAIL_CALDAV_CALENDAR_PATH || "";
+const CALDAV_CALENDAR_PATH = process.env.FASTMAIL_CALDAV_CALENDAR_PATH || "/dav/calendars/user/ryan@symbio.live/F7F39F26-41B5-11F1-880A-F1376648A29D/";
 
 async function putCalendarEvent(icsContent) {
   if (!CALDAV_USER || !CALDAV_PASSWORD) return { ok: false, skipped: true };
