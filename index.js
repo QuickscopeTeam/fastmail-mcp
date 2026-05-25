@@ -751,6 +751,62 @@ async function listAliases(accountId) {
   };
 }
 
+async function updateAlias(accountId, args) {
+  const { id, email, name, textSignature, htmlSignature } = args;
+
+  let identityId = id;
+  if (!identityId) {
+    if (!email) {
+      throw new Error("update_alias requires either `id` or `email` to identify the identity");
+    }
+    const lookup = await jmapRequest([["Identity/get", { accountId }, "0"]]);
+    const match = lookup.methodResponses[0][1].list.find((idn) => idn.email === email);
+    if (!match) throw new Error(`No Fastmail identity with email ${email}`);
+    identityId = match.id;
+  }
+
+  const patch = {};
+  if (name !== undefined) patch.name = name;
+  if (textSignature !== undefined) patch.textSignature = textSignature;
+  if (htmlSignature !== undefined) patch.htmlSignature = htmlSignature;
+
+  if (Object.keys(patch).length === 0) {
+    throw new Error("update_alias requires at least one of: name, textSignature, htmlSignature");
+  }
+
+  const response = await jmapRequest([
+    ["Identity/set", { accountId, update: { [identityId]: patch } }, "0"],
+    ["Identity/get", { accountId, ids: [identityId] }, "1"],
+  ]);
+
+  const setResult = response.methodResponses[0][1];
+  if (setResult.notUpdated && setResult.notUpdated[identityId]) {
+    const err = setResult.notUpdated[identityId];
+    throw new Error(`Identity/set failed: ${err.type}${err.description ? " — " + err.description : ""}`);
+  }
+
+  const updated = response.methodResponses[1][1].list[0];
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify(
+          {
+            ok: true,
+            id: updated.id,
+            email: updated.email,
+            name: updated.name,
+            textSignature: updated.textSignature || "",
+            htmlSignature: updated.htmlSignature || "",
+          },
+          null,
+          2,
+        ),
+      },
+    ],
+  };
+}
+
 async function listFolders(accountId) {
   const response = await jmapRequest([
     [
@@ -987,6 +1043,35 @@ function registerTools(server) {
         },
       },
       {
+        name: "update_alias",
+        description: "Update a Fastmail identity/alias's display name and/or signatures via JMAP Identity/set. Identify the alias by `id` (preferred) or by `email`. Only the provided fields are changed. Returns the updated identity record.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description: "Identity ID (from list_aliases). Preferred over email when known.",
+            },
+            email: {
+              type: "string",
+              description: "Identity email address (used to look up the ID if `id` is not provided).",
+            },
+            name: {
+              type: "string",
+              description: "New display name (the From-name shown in mail clients).",
+            },
+            textSignature: {
+              type: "string",
+              description: "New plain-text signature.",
+            },
+            htmlSignature: {
+              type: "string",
+              description: "New HTML signature.",
+            },
+          },
+        },
+      },
+      {
         name: "list_folders",
         description: "List all mailboxes/folders",
         inputSchema: {
@@ -1088,6 +1173,8 @@ function registerTools(server) {
           return await sendEmail(accountId, args);
         case "list_aliases":
           return await listAliases(accountId);
+        case "update_alias":
+          return await updateAlias(accountId, args);
         case "list_folders":
           return await listFolders(accountId);
         case "move_email":
