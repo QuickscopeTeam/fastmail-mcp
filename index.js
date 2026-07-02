@@ -21,8 +21,10 @@ const CALDAV_USER = process.env.FASTMAIL_CALDAV_USER || "ryan@symbio.live";
 const CALDAV_PASSWORD = process.env.FASTMAIL_CALDAV_PASSWORD || "7f9q4x679y555n7g";
 const CALDAV_BASE = "https://caldav.fastmail.com";
 const CALDAV_CALENDAR_PATH = process.env.FASTMAIL_CALDAV_CALENDAR_PATH || "/dav/calendars/user/ryan@symbio.live/F7F39F26-41B5-11F1-880A-F1376648A29D/";
+// Injury Media brand calendar — invites sent from an @injury.media identity mirror here instead of the primary calendar.
+const CALDAV_CALENDAR_PATH_INJURY_MEDIA = process.env.FASTMAIL_CALDAV_CALENDAR_PATH_IM || "/dav/calendars/user/ryan@symbio.live/20EA976F-39FD-49BF-96F5-13485FF27434/";
 
-async function putCalendarEvent(icsContent) {
+async function putCalendarEvent(icsContent, calendarPath = CALDAV_CALENDAR_PATH) {
   if (!CALDAV_USER || !CALDAV_PASSWORD) return { ok: false, skipped: true };
   const uidMatch = icsContent.match(/^UID:(.+)$/m);
   if (!uidMatch) return { ok: false, error: "no UID in ics" };
@@ -31,7 +33,7 @@ async function putCalendarEvent(icsContent) {
   const eventIcs = icsContent.replace(/^METHOD:.*\r?\n/m, "");
   const auth = Buffer.from(`${CALDAV_USER}:${CALDAV_PASSWORD}`).toString("base64");
   const safeUid = encodeURIComponent(uid);
-  const url = `${CALDAV_BASE}${CALDAV_CALENDAR_PATH}${safeUid}.ics`;
+  const url = `${CALDAV_BASE}${calendarPath}${safeUid}.ics`;
   try {
     const res = await fetch(url, {
       method: "PUT",
@@ -645,12 +647,18 @@ async function sendEmail(accountId, args) {
   // event appears on their phone calendar app (Fastmail JMAP doesn't
   // expose calendar APIs — must be done via CalDAV).
   if (args.attachments?.length) {
+    // Route the mirror to the brand calendar matching the sending identity.
+    const senderEmail = (fromEmail?.[0]?.email || "").toLowerCase();
+    const targetCalendar = senderEmail.endsWith("@injury.media")
+      ? CALDAV_CALENDAR_PATH_INJURY_MEDIA
+      : CALDAV_CALENDAR_PATH;
+    const calendarLabel = targetCalendar === CALDAV_CALENDAR_PATH_INJURY_MEDIA ? "Injury Media calendar" : "calendar";
     for (const att of args.attachments) {
       if (att.filename?.toLowerCase().endsWith('.ics') && att.data) {
         try {
           const ics = Buffer.from(att.data, 'base64').toString('utf-8');
-          const result = await putCalendarEvent(ics);
-          if (result.ok) message += " (added to calendar)";
+          const result = await putCalendarEvent(ics, targetCalendar);
+          if (result.ok) message += ` (added to ${calendarLabel})`;
           else if (!result.skipped) console.error('[sendEmail] CalDAV mirror failed:', result);
         } catch (e) {
           console.error('[sendEmail] CalDAV mirror exception:', e.message);
