@@ -29,8 +29,16 @@ async function putCalendarEvent(icsContent, calendarPath = CALDAV_CALENDAR_PATH)
   const uidMatch = icsContent.match(/^UID:(.+)$/m);
   if (!uidMatch) return { ok: false, error: "no UID in ics" };
   const uid = uidMatch[1].trim();
-  // Strip METHOD line — METHOD is for transport (iTIP), not for stored events
-  const eventIcs = icsContent.replace(/^METHOD:.*\r?\n/m, "");
+  // Strip METHOD line — METHOD is for transport (iTIP), not for stored events.
+  // Strip ATTENDEE lines (incl. folded continuations) so this mirror copy is a
+  // plain personal calendar entry, NOT a scheduling object. Otherwise Fastmail's
+  // CalDAV auto-scheduling (RFC 6638) sees the account as the ORGANIZER and emails
+  // its own REQUEST to every attendee — the recipient would get two invites (the
+  // send_email message AND the CalDAV scheduling invite). Zero attendees = nothing
+  // to schedule = one email. ORGANIZER is kept so the event still shows as Mia's.
+  const eventIcs = icsContent
+    .replace(/^METHOD:.*\r?\n/m, "")
+    .replace(/^ATTENDEE.*(?:\r?\n[ \t].*)*\r?\n/gm, "");
   const auth = Buffer.from(`${CALDAV_USER}:${CALDAV_PASSWORD}`).toString("base64");
   const safeUid = encodeURIComponent(uid);
   const url = `${CALDAV_BASE}${calendarPath}${safeUid}.ics`;
